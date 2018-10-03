@@ -4,7 +4,6 @@ package parser
 package util
 
 import com.intellij.lang.PsiBuilder
-import com.intellij.lang.PsiBuilder.Marker
 import com.intellij.lang.impl.PsiBuilderAdapter
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.text.StringUtil
@@ -71,14 +70,6 @@ object ParserUtils {
     }
   }
 
-  def caseLookAheadFunction(builder: ScalaPsiBuilder): IElementType = {
-    val marker: Marker = builder.mark
-    builder.advanceLexer()
-    val res = builder.getTokenType
-    marker.rollbackTo()
-    res
-  }
-
   @tailrec
   def parseLoopUntilRBrace(builder: ScalaPsiBuilder, fun: () => Unit, braceReported: Boolean = false) {
     var br = braceReported
@@ -141,39 +132,6 @@ object ParserUtils {
     seen == count
   }
 
-  def elementCanStartStatement(element: IElementType, builder: ScalaPsiBuilder): Boolean = {
-    element match {
-      case ScalaTokenTypes.kCATCH => false
-      case ScalaTokenTypes.kELSE => false
-      case ScalaTokenTypes.kEXTENDS => false
-      case ScalaTokenTypes.kFINALLY => false
-      case ScalaTokenTypes.kMATCH => false
-      case ScalaTokenTypes.kWITH => false
-      case ScalaTokenTypes.kYIELD => false
-      case ScalaTokenTypes.tCOMMA => false
-      case ScalaTokenTypes.tDOT => false
-      case ScalaTokenTypes.tSEMICOLON => false
-      case ScalaTokenTypes.tCOLON => false
-      case ScalaTokenTypes.tASSIGN => false
-      case ScalaTokenTypes.tFUNTYPE => false
-      case ScalaTokenTypes.tCHOOSE => false
-      case ScalaTokenTypes.tUPPER_BOUND => false
-      case ScalaTokenTypes.tLOWER_BOUND => false
-      case ScalaTokenTypes.tVIEW => false
-      case ScalaTokenTypes.tINNER_CLASS => false
-      case ScalaTokenTypes.tLSQBRACKET => false
-      case ScalaTokenTypes.tRSQBRACKET => false
-      case ScalaTokenTypes.tRPARENTHESIS => false
-      case ScalaTokenTypes.tRBRACE => false
-      case ScalaTokenTypes.kCASE =>
-        caseLookAheadFunction(builder) match {
-          case ScalaTokenTypes.kOBJECT => true
-          case ScalaTokenTypes.kCLASS => true
-          case _ => false
-        }
-      case _ => true
-    }
-  }
 
   def countNewLinesBeforeCurrentTokenRaw(builder: ScalaPsiBuilder): Int = {
     var i = 1
@@ -184,7 +142,7 @@ object ParserUtils {
     if (lines.exists(_.forall(StringUtil.isWhiteSpace))) 2
     else 1
   }
-  
+
   private def isTestFile(builder: ScalaPsiBuilder): Boolean = {
     ApplicationManager.getApplication.isUnitTestMode &&
       getPsiFile(builder).exists(file => file.getVirtualFile.isInstanceOf[LightVirtualFileBase])
@@ -257,7 +215,7 @@ object ParserUtils {
       case adapterBuilder: PsiBuilderAdapter => adapterBuilder.getDelegate
       case _ => builder
     }
-    
+
     Option(delegate.getUserData(FileContextUtil.CONTAINING_FILE_KEY))
   }
 }
