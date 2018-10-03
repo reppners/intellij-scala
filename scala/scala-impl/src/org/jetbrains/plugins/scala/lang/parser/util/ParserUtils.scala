@@ -4,16 +4,10 @@ package parser
 package util
 
 import com.intellij.lang.PsiBuilder
-import com.intellij.lang.impl.PsiBuilderAdapter
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.psi.PsiFile
-import com.intellij.psi.impl.source.resolve.FileContextUtil
 import com.intellij.psi.tree.{IElementType, TokenSet}
-import com.intellij.testFramework.LightVirtualFileBase
 import org.jetbrains.plugins.scala.lang.lexer.ScalaTokenTypes
 import org.jetbrains.plugins.scala.lang.parser.parsing.builder.ScalaPsiBuilder
-import org.jetbrains.plugins.scala.settings.ScalaProjectSettings
 
 import scala.annotation.tailrec
 
@@ -143,11 +137,6 @@ object ParserUtils {
     else 1
   }
 
-  private def isTestFile(builder: ScalaPsiBuilder): Boolean = {
-    ApplicationManager.getApplication.isUnitTestMode &&
-      getPsiFile(builder).exists(file => file.getVirtualFile.isInstanceOf[LightVirtualFileBase])
-  }
-  
   def hasTextBefore(builder: ScalaPsiBuilder, text: String): Boolean = {
     Option(builder.getLatestDoneMarker).exists {
       marker =>
@@ -155,7 +144,7 @@ object ParserUtils {
     }
   }
   
-  def isBackticked(name: String): Boolean = name != "`" && name.startsWith("`") && name.endsWith("`")
+  private def isBackticked(name: String): Boolean = name != "`" && name.startsWith("`") && name.endsWith("`")
   
   def isCurrentVarId(builder: PsiBuilder): Boolean = {
     val txt = builder.getTokenText
@@ -177,45 +166,19 @@ object ParserUtils {
       false
     }
   }
-  
-  def isIdBindingEnabled(builder: ScalaPsiBuilder): Boolean = isTestFile(builder) || builder.isIdBindingEnabled
-  
-  def isTrailingCommasEnabled(builder: ScalaPsiBuilder): Boolean = 
-    ScalaProjectSettings.getInstance(builder.getProject).getTrailingCommasMode match {
-      case ScalaProjectSettings.TrailingCommasMode.Enabled => true 
-      case ScalaProjectSettings.TrailingCommasMode.Auto => isTestFile(builder) || builder.isTrailingCommasEnabled
-      case ScalaProjectSettings.TrailingCommasMode.Disabled => false
-    }
 
-  def isTrailingComma(builder: ScalaPsiBuilder, expectedBrace: IElementType): Boolean = {
-    if (builder.getTokenType != ScalaTokenTypes.tCOMMA) return false
-
-    isTrailingCommasEnabled(builder) && {
+  def eatTrailingComma(builder: ScalaPsiBuilder,
+                       expectedBrace: IElementType): Boolean = builder.getTokenType match {
+    case ScalaTokenTypes.tCOMMA if builder.isTrailingCommasEnabled =>
       val marker = builder.mark()
 
       builder.advanceLexer()
-      val s = builder.getTokenType == expectedBrace && countNewLinesBeforeCurrentTokenRaw(builder) > 0
+      val result = builder.getTokenType == expectedBrace && countNewLinesBeforeCurrentTokenRaw(builder) > 0
 
       marker.rollbackTo()
+      if (result) builder.advanceLexer() // eat `,`
 
-      s
-    }
-  }
-
-  def eatTrailingComma(builder: ScalaPsiBuilder, expectedBrace: IElementType): Boolean = {
-    if (!isTrailingComma(builder, expectedBrace)) return false
-
-    builder.advanceLexer() //eat `,`
-
-    true
-  }
-
-  def getPsiFile(builder: PsiBuilder): Option[PsiFile] = {
-    val delegate = builder match {
-      case adapterBuilder: PsiBuilderAdapter => adapterBuilder.getDelegate
-      case _ => builder
-    }
-
-    Option(delegate.getUserData(FileContextUtil.CONTAINING_FILE_KEY))
+      result
+    case _ => false
   }
 }

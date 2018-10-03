@@ -5,31 +5,36 @@ package builder
 
 import com.intellij.lang.PsiBuilder
 import com.intellij.lang.impl.PsiBuilderAdapter
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.DumbService
+import com.intellij.psi.impl.source.resolve.FileContextUtil
+import com.intellij.testFramework.LightVirtualFileBase
 import org.jetbrains.plugins.scala.lang.lexer.{ScalaTokenTypes => Types}
 import org.jetbrains.plugins.scala.lang.parser.util.ParserUtils._
 import org.jetbrains.plugins.scala.lang.psi.stubs.elements.ScStubElementType
 import org.jetbrains.plugins.scala.project.Version
-import org.jetbrains.plugins.scala.util.ScalaUtil.getScalaVersion
+import org.jetbrains.plugins.scala.settings.ScalaProjectSettings
+import org.jetbrains.plugins.scala.util.ScalaUtil
 
 import scala.collection.mutable
-import scala.meta.intellij.IdeaUtil.inModuleWithParadisePlugin
+import scala.meta.intellij.IdeaUtil
 
 /**
   * @author Alexander Podkhalyuzin
   */
-class ScalaPsiBuilderImpl(builder: PsiBuilder)
-  extends PsiBuilderAdapter(builder) with ScalaPsiBuilder {
+class ScalaPsiBuilderImpl(delegate: PsiBuilder)
+  extends PsiBuilderAdapter(delegate) with ScalaPsiBuilder {
 
-  private final val newlinesEnabled = new mutable.Stack[Boolean]
+  private val newlinesEnabled = new mutable.Stack[Boolean]
 
-  private lazy val scalaVersion = getPsiFile(this)
-    .flatMap(getScalaVersion)
+  private lazy val scalaVersion = findPsiFile
+    .flatMap(ScalaUtil.getScalaVersion)
     .map(Version(_))
 
-  private lazy val hasMeta = !ScStubElementType.isStubBuilding &&
-    !DumbService.isDumb(getProject) &&
-    getPsiFile(this).exists(inModuleWithParadisePlugin)
+  final lazy val isMetaEnabled: Boolean =
+    !ScStubElementType.isStubBuilding &&
+      !DumbService.isDumb(getProject) &&
+      findPsiFile.exists(IdeaUtil.inModuleWithParadisePlugin)
 
   override def newlineBeforeCurrentToken: Boolean = newLinesBeforeCurrent > 0
 
@@ -48,17 +53,23 @@ class ScalaPsiBuilderImpl(builder: PsiBuilder)
     newlinesEnabled.pop()
   }
 
-  override final def isTrailingCommasEnabled: Boolean = !scalaVersion.exists(_ < Version("2.12.2"))
+  override final def isTrailingCommasEnabled: Boolean = {
+    import ScalaProjectSettings.TrailingCommasMode._
+    ScalaProjectSettings.getInstance(getProject).getTrailingCommasMode match {
+      case Enabled => true
+      case Auto => isTestFile || scalaVersion.forall(_ >= Version("2.12.2"))
+      case Disabled => false
+    }
+  }
 
-  override final def isIdBindingEnabled: Boolean = scalaVersion.exists(_ >= Version("2.12"))
-
-  override final def isMetaEnabled: Boolean = hasMeta
+  override final def isIdBindingEnabled: Boolean =
+    isTestFile || scalaVersion.exists(_ >= Version("2.12"))
 
   protected final def isNewlinesEnabled: Boolean = newlinesEnabled.isEmpty || newlinesEnabled.top
 
   /**
-    * @return 0 if new line is disabled here, or there is no \n chars between tokens
-    *         1 if there is no blank lines between tokens
+    * @return 0 if new line is disabled here, or there are no new lines between tokens
+    *         1 if there are no new lines between tokens
     *         2 otherwise
     */
   private def newLinesBeforeCurrent: Int =
@@ -101,5 +112,15 @@ class ScalaPsiBuilderImpl(builder: PsiBuilder)
       marker.rollbackTo()
       result
     case _ => true
+  }
+
+  private def isTestFile =
+    ApplicationManager.getApplication.isUnitTestMode &&
+      findPsiFile.exists { file =>
+        file.getVirtualFile.isInstanceOf[LightVirtualFileBase]
+      }
+
+  private def findPsiFile = Option {
+    myDelegate.getUserData(FileContextUtil.CONTAINING_FILE_KEY)
   }
 }
